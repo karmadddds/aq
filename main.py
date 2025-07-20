@@ -61,7 +61,7 @@ async def download_and_send_video(message, target, client):
         await client.send_file(
             target,
             file_path,
-            caption=message.text or " ",
+            caption=message.text or "done",
             attributes=[DocumentAttributeVideo(
                 duration=duration,
                 w=width,
