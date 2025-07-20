@@ -1,119 +1,62 @@
-import ffmpeg
-import tempfile
 import os
-import time
 import asyncio
-from telethon import TelegramClient
-from telethon.tl.types import PeerChannel, DocumentAttributeVideo
-from telethon.tl.functions.channels import JoinChannelRequest
+import time
+from telethon.sync import TelegramClient
 from telethon.errors import FloodWaitError
+from telethon.tl.types import InputPeerChannel, InputMediaUploadedDocument, DocumentAttributeVideo
 
-# ✅ API credentials
-api_id = 28832952  # Ganti dengan milikmu
-api_hash = 'e7400f07893872b8dd3942841ca78c0c'
-session_name = 'session_name'
+# Ganti dengan milikmu
+api_id = 12345678
+api_hash = "your_api_hash"
+session_name = "session"
+target_channel = "https://t.me/namachannel_anda"
 
-# ✅ Source dan target channel
-source_channel_id = 2692271337
-target_channel_link = "https://t.me/+qXqhA2ePsoI1NjMx"
-start_message = 2600
-end_message = 12000
+# Konfigurasi range video
+START_INDEX = 2600
+END_INDEX = 12000
+VIDEO_FOLDER = "./videos"           # Ganti sesuai lokasi file
+THUMBNAIL_FOLDER = "./thumbnails"   # Optional
 
-# ✅ Ukuran maksimal video (MB)
-MAX_FILE_SIZE_MB = 2000
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-
-async def get_video_metadata(video_path):
-    try:
-        probe = ffmpeg.probe(video_path)
-        video_stream = next((s for s in probe['streams'] if s['codec_type'] == 'video'), None)
-
-        duration = int(float(video_stream.get('duration', 1)))
-        width = int(video_stream.get('width', 1280))
-        height = int(video_stream.get('height', 720))
-
-        # Generate thumbnail
-        fd, thumb_path = tempfile.mkstemp(suffix=".jpg")
-        os.close(fd)
-        (
-            ffmpeg.input(video_path, ss=1)
-            .output(thumb_path, vframes=1, format='image2', vcodec='mjpeg')
-            .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
-        )
-        return duration, width, height, thumb_path
-    except Exception as e:
-        print(f"⚠️ Gagal ambil metadata: {e}")
-        return 1, 1280, 720, None
-
-async def download_and_send_video(message, target, client):
-    try:
-        if message.file.size > MAX_FILE_SIZE_BYTES:
-            print(f"⏭️ Video {message.id} dilewati (terlalu besar)")
-            return
-
-        fd, file_path = tempfile.mkstemp(suffix=".mp4")
-        os.close(fd)
-
-        await message.download_media(file=file_path)
-
-        duration, width, height, thumb_path = await get_video_metadata(file_path)
-
-        # Tangani caption
-        caption = message.text if isinstance(message.text, str) else " "
-        if len(caption) > 1024:
-            caption = caption[:1024]
-
-        await client.send_file(
-            target,
-            file_path,
-            caption=caption,
-            attributes=[DocumentAttributeVideo(
-                duration=duration,
-                w=width,
-                h=height,
-                supports_streaming=True
-            )],
-            thumb=thumb_path
-        )
-
-        print(f"✅ Video {message.id} terkirim")
-
-    except Exception as e:
-        print(f"❌ Error video {message.id}: {e}")
-    finally:
-        if os.path.exists(file_path): os.remove(file_path)
-        if thumb_path and os.path.exists(thumb_path): os.remove(thumb_path)
+# Delay antar upload (untuk keamanan)
+BASE_DELAY = 1.2  # detik
 
 async def main():
     async with TelegramClient(session_name, api_id, api_hash) as client:
-        try:
-            source_channel = await client.get_entity(PeerChannel(source_channel_id))
-            print(f"📌 Terhubung ke channel source ID: {source_channel_id}")
-            await client(JoinChannelRequest(target_channel_link))
-            target_channel = await client.get_entity(target_channel_link)
-            print(f"📌 Terhubung ke channel target: {target_channel.title}")
+        entity = await client.get_entity(target_channel)
 
-            messages = []
-            async for message in client.iter_messages(
-                source_channel,
-                offset_id=start_message - 1,
-                limit=end_message - start_message + 1,
-                reverse=True
-            ):
-                if message.video:
-                    messages.append(message)
+        for i in range(START_INDEX, END_INDEX + 1):
+            video_path = os.path.join(VIDEO_FOLDER, f"video_{i}.mp4")
+            thumb_path = os.path.join(THUMBNAIL_FOLDER, f"video_{i}.jpg")
 
-            # Urutkan berdasarkan ID
-            messages.sort(key=lambda m: m.id)
+            if not os.path.isfile(video_path):
+                print(f"❌ Video {i} tidak ditemukan: {video_path}")
+                continue
 
-            for message in messages:
-                await download_and_send_video(message, target_channel, client)
+            try:
+                attributes = [DocumentAttributeVideo(duration=0, w=0, h=0, supports_streaming=True)]
 
-        except FloodWaitError as e:
-            print(f"⚠️ Rate limit: menunggu {e.seconds} detik...")
-            await asyncio.sleep(e.seconds)
-        except Exception as e:
-            print(f"❌ Error utama: {e}")
+                start = time.time()
+                await client.send_file(
+                    entity,
+                    file=video_path,
+                    thumb=thumb_path if os.path.isfile(thumb_path) else None,
+                    attributes=attributes,
+                    caption=f"Video {i}"
+                )
+                elapsed = time.time() - start
+                print(f"✅ Video {i} terkirim (⏱️ {elapsed:.1f} detik)")
+
+                await asyncio.sleep(BASE_DELAY)
+
+            except FloodWaitError as e:
+                print(f"⚠️ FloodWait {e.seconds} detik. Menunggu...")
+                await asyncio.sleep(e.seconds + 2)
+
+            except Exception as e:
+                print(f"❌ Gagal mengirim video {i}: {e}")
+                continue
+
+        print("🎉 Semua video selesai dikirim!")
 
 if __name__ == "__main__":
     asyncio.run(main())
