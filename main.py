@@ -16,7 +16,7 @@ session_name = 'session_name'
 # ✅ Source dan target
 source_channel_id = 2692271337
 target_channel_link = "https://t.me/+qXqhA2ePsoI1NjMx"
-start_message = 2501
+start_message = 2551
 end_message = 12000
 
 # ✅ Batas ukuran
